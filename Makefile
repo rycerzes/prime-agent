@@ -41,8 +41,8 @@ windows-msvc-cross:
 actionlint:
 	@command -v actionlint >/dev/null 2>&1 || { echo "actionlint not installed (see rhysd/actionlint releases)"; exit 1; }
 	actionlint .github/workflows/ci.yml .github/workflows/codebase-health.yml .github/workflows/contribution-gate.yml \
-		.github/workflows/continuous.yml .github/workflows/release.yml .github/workflows/windows-runtime-triage.yml \
-		.github/workflows/release-prepare.yml .github/workflows/nightly.yml
+		.github/workflows/continuous.yml .github/workflows/cursor-sdk.yml .github/workflows/release.yml \
+		.github/workflows/windows-runtime-triage.yml .github/workflows/release-prepare.yml .github/workflows/nightly.yml
 
 # GLIBC baseline gate (the continuous.yml/release.yml build-gnu jobs): a
 # GNU/Linux artifact must not require symbols above GLIBC_2.35, the Ubuntu
