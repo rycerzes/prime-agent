@@ -8,6 +8,7 @@ stderr and never include the API key.
 
 from __future__ import annotations
 
+import faulthandler
 import json
 import os
 import queue
@@ -22,6 +23,7 @@ from typing import Any
 
 _SECRET = re.compile(r"crsr_[A-Za-z0-9]+")
 _PROTO: Any = None
+_STDIN: Any = None
 _OUT_LOCK = threading.Lock()
 
 
@@ -44,10 +46,22 @@ def prepare_environment() -> None:
     os.environ.setdefault("XDG_DATA_HOME", os.path.join(clean, ".local", "share"))
 
 
-def prepare_stdout() -> None:
-    global _PROTO
-    proto_fd = os.dup(1)
-    _PROTO = os.fdopen(proto_fd, "w", encoding="utf-8", buffering=1)
+def prepare_stdio() -> None:
+    """Detach the protocol pipes from fds 0 and 1.
+
+    The Cursor bridge subprocess inherits the process stdio. Leaving the
+    command pipe on fd 0 makes that child close it when a run starts, which
+    ends this process. The command stream moves to a private dup and fd 0
+    becomes ``/dev/null``.
+    """
+    global _PROTO, _STDIN
+    proto_in = os.dup(0)
+    null_fd = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(null_fd, 0)
+    os.close(null_fd)
+    _STDIN = os.fdopen(proto_in, "r", encoding="utf-8")
+    proto_out = os.dup(1)
+    _PROTO = os.fdopen(proto_out, "w", encoding="utf-8", buffering=1)
     sys.stdout = sys.stderr
 
 
@@ -66,7 +80,8 @@ def excepthook(etype, value, tb) -> None:  # noqa: ANN001
 
 
 prepare_environment()
-prepare_stdout()
+prepare_stdio()
+faulthandler.enable(file=sys.stderr, all_threads=True)
 sys.excepthook = excepthook
 
 try:
@@ -126,7 +141,10 @@ class Bridge:
         self.thinking_sent = ""
 
     def serve(self) -> None:
-        for line in sys.stdin:
+        sys.stderr.write("cursor bridge: serving\n")
+        sys.stderr.flush()
+        assert _STDIN is not None
+        for line in _STDIN:
             text = line.strip()
             if not text:
                 continue
@@ -140,7 +158,13 @@ class Bridge:
                 continue
             try:
                 self.dispatch(command)
-            except Exception as exc:  # noqa: BLE001
+            except BaseException as exc:  # noqa: BLE001
+                sys.stderr.write(
+                    f"cursor bridge: command failed {type(exc).__name__}: {scrub(str(exc))}\n"
+                )
+                sys.stderr.flush()
+                if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                    raise
                 emit(
                     {
                         "op": "error",
@@ -148,6 +172,8 @@ class Bridge:
                         "message": scrub(str(exc)),
                     }
                 )
+        sys.stderr.write("cursor bridge: stdin closed\n")
+        sys.stderr.flush()
         self.handle_abort()
 
     def dispatch(self, command: dict[str, Any]) -> None:
@@ -201,14 +227,22 @@ class Bridge:
             )
         sys.stderr.write(f"cursor bridge: create agent model={model} tools={list(custom)}\n")
         sys.stderr.flush()
-        return Agent.create(
-            AgentOptions(
-                model=model,
-                api_key=api_key,
-                tools=["mcp"],
-                local=LocalAgentOptions(cwd=cwd, custom_tools=custom),
+        try:
+            agent = Agent.create(
+                AgentOptions(
+                    model=model,
+                    api_key=api_key,
+                    tools=["mcp"],
+                    local=LocalAgentOptions(cwd=cwd, custom_tools=custom),
+                )
             )
-        )
+        except BaseException as exc:
+            sys.stderr.write(f"cursor bridge: create failed {type(exc).__name__}: {scrub(str(exc))}\n")
+            sys.stderr.flush()
+            raise
+        sys.stderr.write("cursor bridge: create returned\n")
+        sys.stderr.flush()
+        return agent
 
     def make_execute(self, name: str):
         def execute(args: Any, context: Any) -> str:
@@ -237,14 +271,27 @@ class Bridge:
         if self.agent is None:
             emit({"op": "error", "turn": self.turn_id, "message": "no cursor agent"})
             return
+        sys.stderr.write("cursor bridge: send\n")
+        sys.stderr.flush()
         self.generation += 1
         generation = self.generation
         self.assistant_sent = ""
         self.thinking_sent = ""
-        run = self.agent.send(prompt)
+        try:
+            run = self.agent.send(prompt)
+        except BaseException as exc:
+            sys.stderr.write(
+                f"cursor bridge: send failed {type(exc).__name__}: {scrub(str(exc))}\n"
+            )
+            sys.stderr.flush()
+            raise
+        sys.stderr.write("cursor bridge: send returned\n")
+        sys.stderr.flush()
         self.current_run = run
 
         def consume() -> None:
+            sys.stderr.write("cursor bridge: consuming\n")
+            sys.stderr.flush()
             try:
                 for message in run.messages():
                     if generation != self.generation:
@@ -260,6 +307,8 @@ class Bridge:
 
         self.run_thread = threading.Thread(target=consume, name="cursor-run", daemon=True)
         self.run_thread.start()
+        sys.stderr.write("cursor bridge: run thread started\n")
+        sys.stderr.flush()
 
     def handle_message(self, message: Any) -> None:
         kind = getattr(message, "type", "")
