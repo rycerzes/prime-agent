@@ -1,0 +1,19 @@
+{
+  "providers": {
+    "cursor": {
+      "baseUrl": "cursor-sdk://local",
+      "api": "cursor-sdk",
+      "apiKey": "CURSOR_API_KEY",
+      "models": [
+        {
+          "id": "composer-2.5",
+          "name": "Composer 2.5",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 200000,
+          "maxTokens": 32000
+        }
+      ]
+    }
+  }
+}
