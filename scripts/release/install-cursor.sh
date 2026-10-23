@@ -1,8 +1,8 @@
 #!/bin/sh
 # Install this fork's cursor-cli GitHub Release.
 #
-# The release workflow stamps @PRIME_VERSION@ and @CURSOR_CLI_VERSION@ and
-# uploads the result as install.sh on the cursor-cli-<version> release.
+# The release workflow stamps the prime-agent and cursor-cli versions below
+# and uploads the result as install.sh on the cursor-cli release.
 # curl -fsSL https://github.com/rycerzes/prime-agent/releases/latest/download/install.sh | sh
 set -eu
 
@@ -10,14 +10,18 @@ PRIME_VERSION="${PRIME_AGENT_VERSION_OVERRIDE:-@PRIME_VERSION@}"
 CURSOR_CLI_VERSION="${CURSOR_CLI_VERSION_OVERRIDE:-@CURSOR_CLI_VERSION@}"
 REPO="${PRIME_AGENT_GITHUB_REPO:-rycerzes/prime-agent}"
 
+# Built without the marker text in one piece, so stamping the defaults does
+# not rewrite the guard into the real version.
+unstamped_prime=$(printf '%s%s%s' '@' 'PRIME_VERSION' '@')
+unstamped_cursor=$(printf '%s%s%s' '@' 'CURSOR_CLI_VERSION' '@')
 case "$PRIME_VERSION" in
-  @PRIME_VERSION@)
+  "$unstamped_prime")
     echo "install.sh was not stamped with the prime-agent version" >&2
     exit 1
     ;;
 esac
 case "$CURSOR_CLI_VERSION" in
-  @CURSOR_CLI_VERSION@)
+  "$unstamped_cursor")
     echo "install.sh was not stamped with the cursor-cli version" >&2
     exit 1
     ;;
