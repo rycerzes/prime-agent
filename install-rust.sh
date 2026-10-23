@@ -923,11 +923,16 @@ elif [ "$MODE" = archive ]; then
   [ -f "$ARCHIVE" ] || die "the release archive ${ARCHIVE} does not exist"
   archive_name="${ARCHIVE##*/}"
   case "$archive_name" in
-    prime-agent-?*-"${CHANNEL_PLATFORM}".tar.gz) ;;
-    *) die "${archive_name} is not a ${CHANNEL_PLATFORM} release archive (expected prime-agent-<version>-${CHANNEL_PLATFORM}.tar.gz)" ;;
+    prime-agent-?*-"${CHANNEL_PLATFORM}"+cursor-cli-?*.tar.gz)
+      VERSION="${archive_name#prime-agent-}"
+      VERSION="${VERSION%%-"${CHANNEL_PLATFORM}"+cursor-cli-*}"
+      ;;
+    prime-agent-?*-"${CHANNEL_PLATFORM}".tar.gz)
+      VERSION="${archive_name#prime-agent-}"
+      VERSION="${VERSION%-"${CHANNEL_PLATFORM}".tar.gz}"
+      ;;
+    *) die "${archive_name} is not a ${CHANNEL_PLATFORM} release archive (expected prime-agent-<version>-${CHANNEL_PLATFORM}.tar.gz or prime-agent-<version>-${CHANNEL_PLATFORM}+cursor-cli-<version>.tar.gz)" ;;
   esac
-  VERSION="${archive_name#prime-agent-}"
-  VERSION="${VERSION%-"${CHANNEL_PLATFORM}".tar.gz}"
   # A leading v is the pin's accepted spelling too (`--rollback`'s marker
   # versions carry none; the exact payload match below compares the bare
   # version the binary reports).
