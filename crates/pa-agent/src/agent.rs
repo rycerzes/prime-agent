@@ -17,7 +17,7 @@ use crate::agent_loop::{
 use crate::stream::StreamFn;
 use crate::types::{
     AgentEvent, AgentMessage, AgentTool, ImageContent, Model, ThinkingLevel, ToolExecutionMode,
-    Usage,
+    ToolProgressCadence, Usage,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -102,6 +102,9 @@ pub struct AgentOptions {
     pub follow_up_mode: Option<QueueMode>,
     pub session_id: Option<String>,
     pub tool_execution: Option<ToolExecutionMode>,
+    /// Heartbeat cadence for in-flight tool calls; `None` keeps the 60s
+    /// default tick.
+    pub tool_progress: Option<ToolProgressCadence>,
 }
 
 struct MutableAgentState {
@@ -278,6 +281,14 @@ type AgentEventListener = Arc<
     dyn Fn(AgentEvent, AbortSignal) -> crate::BoxFut<'static, anyhow::Result<()>> + Send + Sync,
 >;
 
+/// Rewrites one `MessageEnd` row just before it lands in agent state and
+/// before listeners see the event: the session engine installs it to
+/// apply rows parked ahead of their landing message (late
+/// `agent_message.send` receipts), so live state and the persistence
+/// listener's row both carry the rewrite.
+pub type MessageEndTransformFn =
+    Arc<dyn Fn(AgentMessage) -> crate::BoxFut<'static, AgentMessage> + Send + Sync>;
+
 /// Unsubscribe handle: dropping it does NOT unsubscribe; call
 /// [`Subscription::unsubscribe`] explicitly to remove the listener.
 pub struct Subscription {
@@ -327,12 +338,17 @@ struct AgentInner {
     /// The natural-turn-end continuation hook: settable after construction so the session engine
     /// can install it. A plain mutex: cloned at run-config build, never held across an await.
     get_continuation_messages: Mutex<Option<GetContinuationMessagesFn>>,
+    /// The `MessageEnd` landing transform: settable after construction so
+    /// the session engine can install it. A plain mutex: cloned at event
+    /// processing entry, never held across an await.
+    message_end_transform: Mutex<Option<MessageEndTransformFn>>,
     /// Per-run model override; the owner sets it right before starting a routed run and clears it
     /// before the next dispatch. A plain mutex: read at run-config build, never held across an
     /// await.
     model_override: Mutex<Option<AgentModelOverride>>,
     session_id: Option<String>,
     tool_execution: ToolExecutionMode,
+    tool_progress: ToolProgressCadence,
 }
 
 impl AgentInner {
@@ -352,7 +368,17 @@ impl AgentInner {
 
     async fn process_events(self: &Arc<Self>, event: AgentEvent) -> anyhow::Result<()> {
         let _delivery = self.event_delivery.lock().await;
+        let message_end_transform = self.message_end_transform.lock().unwrap().clone();
         let mut shared = self.shared.lock().await;
+        // The landing transform rewrites a `MessageEnd` row under the same
+        // shared lock as the state push: the row lands in state and reaches
+        // every listener exactly once, already rewritten.
+        let event = match (event, message_end_transform) {
+            (AgentEvent::MessageEnd { message }, Some(transform)) => AgentEvent::MessageEnd {
+                message: transform(message).await,
+            },
+            (event, _) => event,
+        };
 
         match &event {
             AgentEvent::MessageStart { message } => {
@@ -384,7 +410,8 @@ impl AgentInner {
             }
             AgentEvent::AgentStart
             | AgentEvent::TurnStart
-            | AgentEvent::ToolExecutionUpdate { .. } => {}
+            | AgentEvent::ToolExecutionUpdate { .. }
+            | AgentEvent::ToolExecutionProgress { .. } => {}
         }
 
         let Some(signal) = self.current_signal() else {
@@ -546,6 +573,7 @@ impl AgentInner {
         config.get_follow_up_messages = Some(follow_up);
         config.get_continuation_messages = continuation;
         config.tool_execution = self.tool_execution;
+        config.tool_progress = self.tool_progress;
         config.before_tool_call.clone_from(&self.before_tool_call);
         config.after_tool_call.clone_from(&self.after_tool_call);
         config
@@ -769,11 +797,13 @@ impl Agent {
             should_stop_after_turn: options.should_stop_after_turn,
             should_stop_before_turn: options.should_stop_before_turn,
             get_continuation_messages: Mutex::new(options.get_continuation_messages),
+            message_end_transform: Mutex::new(None),
             model_override: Mutex::new(None),
             session_id: options.session_id,
             tool_execution: options
                 .tool_execution
                 .unwrap_or(ToolExecutionMode::Parallel),
+            tool_progress: options.tool_progress.unwrap_or_default(),
         });
         Agent { inner }
     }
@@ -924,6 +954,18 @@ impl Agent {
     /// Panics if the `get_continuation_messages` mutex is poisoned.
     pub fn set_continuation_hook(&self, hook: Option<GetContinuationMessagesFn>) {
         *self.inner.get_continuation_messages.lock().unwrap() = hook;
+    }
+
+    /// Install or replace the `MessageEnd` landing transform: the owner that
+    /// parks rows ahead of their landing message (the session engine's
+    /// late-receipt seam) wires it after the agent exists. `None` uninstalls
+    /// the transform.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `message_end_transform` mutex is poisoned.
+    pub fn set_message_end_transform(&self, transform: Option<MessageEndTransformFn>) {
+        *self.inner.message_end_transform.lock().unwrap() = transform;
     }
 
     /// # Panics

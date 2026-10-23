@@ -144,7 +144,7 @@ const SESSION_NAME_COLUMN_MAX_CELLS: usize = 28;
 const SESSION_TITLE_MAX_CELLS: usize = SESSION_NAME_COLUMN_MAX_CELLS - 2;
 
 /// The picker's name target: the SESSION column's own title, clipped at the column's own cap;
-/// the TS transcript corpus (`allMessagesText`) stays excluded.
+/// transcript text stays excluded.
 fn session_search_name(summary: &Value) -> String {
     truncate_text(&session_title(summary), SESSION_TITLE_MAX_CELLS)
 }
@@ -632,9 +632,16 @@ pub fn build_layout(rows: &[crate::agents_view_forest::AgentsViewRow], width: us
         .iter()
         .filter(|row| row.kind != crate::agents_view_forest::RowKind::Code)
         .collect();
+    let cost = |row: &crate::agents_view_forest::AgentsViewRow| {
+        if row.kind == crate::agents_view_forest::RowKind::PersistentShell {
+            "-".to_string()
+        } else {
+            format!("${:.2}", row.cost)
+        }
+    };
     let cost_width = rows
         .iter()
-        .map(|row| str_width(&format!("${:.2}", row.cost)))
+        .map(|row| str_width(&cost(row)))
         .max()
         .unwrap_or(0)
         .max(4);
@@ -668,12 +675,7 @@ pub fn build_layout(rows: &[crate::agents_view_forest::AgentsViewRow], width: us
     headings.push(detail_line("Cost", "Age"));
     let details = rows
         .iter()
-        .map(|row| {
-            (
-                row.identity.clone(),
-                detail_line(&format!("${:.2}", row.cost), &row.age),
-            )
-        })
+        .map(|row| (row.identity.clone(), detail_line(&cost(row), &row.age)))
         .collect();
     RowLayout {
         legend: table_cell(&headings.join("  "), width),
@@ -855,6 +857,7 @@ mod tests {
             None,
             &std::collections::HashSet::default(),
             &std::collections::HashSet::default(),
+            &std::collections::HashMap::default(),
             &std::collections::HashMap::default(),
             None,
         );
@@ -1046,6 +1049,7 @@ mod tests {
             &std::collections::HashSet::default(),
             &std::collections::HashSet::default(),
             &std::collections::HashMap::default(),
+            &std::collections::HashMap::default(),
             None,
         );
         let layout = build_layout(&rows, 120);
@@ -1091,6 +1095,7 @@ mod tests {
             None,
             &std::collections::HashSet::default(),
             &std::collections::HashSet::default(),
+            &std::collections::HashMap::default(),
             &std::collections::HashMap::default(),
             None,
         );

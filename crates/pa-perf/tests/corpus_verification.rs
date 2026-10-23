@@ -67,6 +67,17 @@ fn markers_land_on_the_final_user_message() {
         &manifest.markers.switch_b,
     ] {
         let text = std::fs::read_to_string(&marker.file).expect("read session");
+        // The reply under the marker is one short text line, so rows the
+        // product appends at attach cannot push the marker off screen.
+        let last: serde_json::Value =
+            serde_json::from_str(text.lines().last().expect("a last row")).expect("valid row");
+        let blocks = last["message"]["content"].as_array();
+        assert!(
+            last["message"]["role"] == "assistant"
+                && last["message"]["stopReason"] == "stop"
+                && blocks.is_some_and(|blocks| blocks.len() == 1 && blocks[0]["type"] == "text"),
+            "the marker reply is one text block: {last}"
+        );
         let last_user = text
             .lines()
             .rev()
@@ -299,28 +310,6 @@ fn the_switch_query_can_only_match_switch_b() {
         }
     }
     assert_eq!(scanned, options.sessions, "every session checked");
-}
-
-/// The corpus settings disable BOTH archive rules: the daemon's boot sweep
-/// would otherwise retire corpus sessions out from under the manifest
-/// baseline (the defaults keep 200 files / 30 days).
-#[test]
-fn the_archive_policy_is_off() {
-    let dir = tempfile::tempdir().expect("temp dir");
-    let options = tiny(Profile::Small, dir.path());
-    let manifest = generate(&options).expect("generate");
-    let settings: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(manifest.paths.agent_dir.join("settings.json")).expect("settings"),
-    )
-    .expect("a settings object");
-    assert_eq!(
-        settings["sessionArchiveMaxAgeDays"],
-        serde_json::json!("off")
-    );
-    assert_eq!(
-        settings["sessionArchiveMaxSessions"],
-        serde_json::json!("off")
-    );
 }
 
 /// The corpus manifest records the generated file set (the bench's

@@ -92,12 +92,6 @@ records (`parentSession`/`child` are canonical paths).
   the warm scan via the daemon's in-process cache instead.
 - `pa-perf run` generates BOTH corpora (cold for the cold scenarios, warm
   for warm-start/warm-ready) — every scenario runs on the state it needs.
-- The corpus settings disable BOTH archive rules (`sessionArchiveMaxAgeDays`
-  / `sessionArchiveMaxSessions` "off"): the product's defaults sweep the
-  live store down to 200 unarchived sessions (the operator's real store:
-  196 live + 211 archived), so large/xl with archiving off are scaling
-  stress profiles, not typical stores, and the boot sweep itself is not
-  measured.
 
 ## The bench harness
 
@@ -120,10 +114,10 @@ the liveness deadline only fails broken runs):
 | `cold-ready` | cold | the same launch, exec -> the tray's session-usage pill, the first attach-only content (daemon spawn + session create + attach included) |
 | `warm-start` | warm | exec -> first paint, daemon pre-started |
 | `warm-ready` | warm | the same launch, exec -> the attach pill |
-| `agents-view` | cold | left-arrow -> the completed `Inactive (N)` roster heading in the screen model |
+| `agents-view` | cold | left-arrow -> the settled first catalog page (`Inactive (N)` plus the `M older sessions not loaded` footer account for every session) in the screen model |
 | `agents-view-warm` | cold | the same daemon's second populate (its in-process scan cache warm) |
-| `open-session` | cold | `--resume <huge session>` -> the huge session's tail marker |
-| `session-switch` | cold | enter on the uniquely-filtered switch-b row -> B's transcript marker |
+| `open-session` | cold | `--resume <huge session>` -> the huge session's tail marker (the final user row; its reply is one line) |
+| `session-switch` | cold | enter on the uniquely-filtered switch-b row -> B's transcript marker (the final user row; its reply is one line) |
 | `at-completion` | cold | the `@` keystroke -> the first completion menu row |
 
 Mechanics (the repo's pty-e2e discipline): the TUI child runs in its own

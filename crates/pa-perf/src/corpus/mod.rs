@@ -125,7 +125,7 @@ const TASKS: [&str; 16] = [
 /// note.)
 const BASE_MS: u64 = 1_790_000_000_000;
 /// The mtime step between sessions (roster order is mtime-desc; the
-/// spread is realism only — the archive-off settings are the sweep guard).
+/// spread is realism only).
 const MTIME_STEP_MS: u64 = 720_000;
 /// The header-timestamp hour step (a session's rows spread over an hour).
 const HOUR_MS: u64 = 3_600_000;
@@ -172,7 +172,8 @@ pub struct ManifestMarkers {
     pub huge: MarkerSession,
     pub switch_a: MarkerSession,
     pub switch_b: MarkerSession,
-    /// The agents view's expected `Inactive (N)` heading count.
+    /// The corpus sessions the agents view lists as inactive (loaded under
+    /// the `Inactive (N)` heading or counted in its not-yet-loaded footer).
     pub roster_inactive: usize,
     /// The session-switch search query (uniquely matches the switch-b row).
     pub switch_query: String,
@@ -232,17 +233,11 @@ pub fn generate(options: &CorpusOptions) -> anyhow::Result<Manifest> {
     }
     let cwd = project_dir.display().to_string();
 
-    // Onboarding is pre-answered, traces stay off, and BOTH archive rules
-    // are disabled: the daemon's boot sweep would otherwise retire the
-    // corpus's own sessions (the defaults keep 200 files / 30 days) and
-    // move them out from under the bench's manifest baseline.
     std::fs::write(
         agent_dir.join("settings.json"),
         serde_json::json!({
             "onboardingShown": true,
             "agentTraces": { "enabled": false },
-            "sessionArchiveMaxAgeDays": "off",
-            "sessionArchiveMaxSessions": "off",
         })
         .to_string(),
     )?;
